@@ -1,117 +1,116 @@
-"""Busca visual usando CLIP para gerar embeddings e similaridade de cosseno."""
+"""Busca visual com CLIP: embeddings, cache em memória e ranking por similaridade de cosseno."""
 from __future__ import annotations
 
-import math
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Optional
+from dataclasses import dataclass
+from typing import Callable
 
 import numpy as np
-from PIL import Image
+
+from src.image_service import load_image
 
 
-class ModelLoadError(Exception):
-    pass
+class ModelLoadError(RuntimeError):
+    """Falha ao carregar o modelo CLIP (ex.: sem internet no primeiro uso)."""
 
 
-class ClipEmbedder:
-    """Carrega o modelo CLIP e gera embeddings de imagens."""
-
-    def __init__(self, model_name: str = "openai/clip-vit-base-patch32") -> None:
-        try:
-            import torch
-            from transformers import CLIPModel, CLIPProcessor
-
-            self.device = "cuda" if torch.cuda.is_available() else "cpu"
-            self.processor = CLIPProcessor.from_pretrained(model_name)
-            self.model = CLIPModel.from_pretrained(model_name).to(self.device)
-            self.model.eval()
-        except Exception as exc:
-            raise ModelLoadError(f"Não foi possível carregar o modelo CLIP ({model_name}): {exc}") from exc
-
-    def __call__(self, image: Image.Image) -> np.ndarray:
-        """Gera embedding normalizado para uma imagem PIL."""
-        import torch
-
-        inputs = self.processor(images=image, return_tensors="pt").to(self.device)
-        with torch.no_grad():
-            features = self.model.get_image_features(**inputs)
-        vec = features.cpu().numpy()[0]
-        norm = np.linalg.norm(vec)
-        return vec / norm if norm > 0 else vec
+@dataclass
+class Match:
+    report: dict
+    score: float
+    level: str
 
 
-class EmbeddingCache:
-    """Mantém embeddings em memória para evitar reprocessamento."""
-
-    def __init__(self, embedder: ClipEmbedder) -> None:
-        self.embedder = embedder
-        self._cache: dict[str, np.ndarray] = {}
-
-    def get(self, image_path: str) -> Optional[np.ndarray]:
-        if image_path in self._cache:
-            return self._cache[image_path]
-        try:
-            img = Image.open(Path(image_path)).convert("RGB")
-            embedding = self.embedder(img)
-            self._cache[image_path] = embedding
-            return embedding
-        except Exception:
-            return None
-
-
-def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
-    return float(np.dot(a, b))
-
-
-def _similarity_level(score: float) -> str:
+def similarity_level(score: float) -> str:
     if score >= 0.90:
         return "alta"
-    if score >= 0.75:
+    if score >= 0.80:
         return "média"
     return "baixa"
 
 
-@dataclass
-class MatchResult:
-    report: dict
-    score: float
-    level: str = field(init=False)
+def _to_tensor(features):
+    """Compatível com transformers 4.x (tensor) e 5.x (objeto com pooler_output)."""
+    if hasattr(features, "cpu"):
+        return features
+    for attr in ("image_embeds", "pooler_output"):
+        value = getattr(features, attr, None)
+        if value is not None:
+            return value
+    raise TypeError(f"Retorno inesperado do CLIP: {type(features)!r}")
 
-    def __post_init__(self):
-        self.level = _similarity_level(self.score)
+
+class ClipEmbedder:
+    """Carrega o CLIP sob demanda e transforma uma imagem PIL em vetor normalizado."""
+
+    def __init__(self, model_name: str = "openai/clip-vit-base-patch32") -> None:
+        self.model_name = model_name
+        self._model = None
+        self._processor = None
+
+    def _load(self) -> None:
+        if self._model is not None:
+            return
+        try:
+            from transformers import CLIPModel, CLIPProcessor
+
+            self._processor = CLIPProcessor.from_pretrained(self.model_name)
+            self._model = CLIPModel.from_pretrained(self.model_name)
+            self._model.eval()
+        except Exception as exc:
+            raise ModelLoadError(f"Não foi possível carregar o modelo CLIP: {exc}") from exc
+
+    def __call__(self, image) -> np.ndarray:
+        import torch
+
+        self._load()
+        inputs = self._processor(images=image.convert("RGB"), return_tensors="pt")
+        with torch.no_grad():
+            features = _to_tensor(self._model.get_image_features(**inputs))
+        vector = features.cpu().numpy()[0].astype("float32")
+        norm = np.linalg.norm(vector)
+        return vector / norm if norm else vector
+
+
+class EmbeddingCache:
+    """Guarda em memória o embedding de cada imagem cadastrada."""
+
+    def __init__(self, embedder: Callable) -> None:
+        self.embedder = embedder
+        self._vectors: dict[str, np.ndarray] = {}
+
+    def get(self, report: dict) -> np.ndarray | None:
+        path = report.get("image_path", "")
+        if path in self._vectors:
+            return self._vectors[path]
+        image = load_image(path)
+        if image is None:
+            return None
+        vector = self.embedder(image)
+        self._vectors[path] = vector
+        return vector
 
 
 def rank_candidates(
-    query_embedding: np.ndarray,
+    query: np.ndarray,
     reports: list[dict],
     cache: EmbeddingCache,
     top_k: int = 5,
-    species: Optional[str] = None,
-    report_type: Optional[str] = None,
-) -> tuple[list[MatchResult], int]:
-    """
-    Compara o embedding da query com os registros e retorna os mais semelhantes.
-
-    Retorna (matches, missing) onde missing é o número de registros sem imagem disponível.
-    """
-    results: list[MatchResult] = []
+    species: str | None = None,
+    report_type: str | None = None,
+) -> tuple[list[Match], int]:
+    """Retorna (melhores correspondências, quantidade de registros sem imagem local)."""
+    matches: list[Match] = []
     missing = 0
-
     for report in reports:
         if species and report.get("species") != species:
             continue
         if report_type and report.get("report_type") != report_type:
             continue
-
-        image_path = report.get("image_path", "")
-        embedding = cache.get(image_path)
-        if embedding is None:
+        vector = cache.get(report)
+        if vector is None:
             missing += 1
             continue
-
-        score = cosine_similarity(query_embedding, embedding)
-        results.append(MatchResult(report=report, score=score))
-
-    results.sort(key=lambda r: r.score, reverse=True)
-    return results[:top_k], missing
+        score = float(np.dot(query, vector))
+        matches.append(Match(report=report, score=score, level=similarity_level(score)))
+    matches.sort(key=lambda m: m.score, reverse=True)
+    return matches[:top_k], missing
