@@ -1,0 +1,28 @@
+[
+  {
+    "report_type": "perdido",
+    "species": "cachorro",
+    "color": "Preto e Branco",
+    "description": "Husky",
+    "event_date": "2026-10-29",
+    "city": "Sertãozinho",
+    "latitude": "",
+    "longitude": "",
+    "image_path": "data\\images\\667ea8ae1b8b4d89aabf4ede89653a94.jpg",
+    "id": "4b74d077-68e9-4c00-84a7-43e776cd8fb9",
+    "created_at": "2026-10-29T22:45:24.146627"
+  },
+  {
+    "report_type": "perdido",
+    "species": "cachorro",
+    "color": "Preto e Branco",
+    "description": "Husky",
+    "event_date": "2026-10-29",
+    "city": "Sertãozinho",
+    "latitude": "",
+    "longitude": "",
+    "image_path": "data\\images\\3d21bd4900fa49b3a8754b3ae29ecfa7.jpg",
+    "id": "34d4bbcd-c8e8-4f81-93ec-eb1c56e9f500",
+    "created_at": "2026-10-29T22:45:46.448782"
+  }
+]
