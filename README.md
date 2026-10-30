@@ -23,20 +23,25 @@ PetMatch AI ajuda tutores e ONGs a encontrar animais perdidos comparando fotos a
 
 ### Pré-requisitos
 
-- **Python 3.10 a 3.12** (recomendado: 3.12)
+- **Python 3.10 a 3.12** (recomendado: 3.12). Não use Python 3.13 ou superior: o PyTorch ainda pode não ter suporte.
 - **pip** (gerenciador de pacotes Python)
+- **Conexão com a internet** na instalação e na primeira busca (o modelo CLIP é baixado, ~600 MB)
 
-### Passo 1: Clone o repositório
+### Passo 1: Baixe o projeto completo
 
 ```bash
 git clone https://github.com/seu-usuario/petmatch-ai.git
 cd petmatch-ai
 ```
 
-### Passo 2: Configure o ambiente
+Se baixar o ZIP do GitHub, extraia e abra o terminal **dentro da pasta que contém o `app.py`**.
 
-**Windows:**
-```bash
+Confira se a pasta `src/` existe ao lado do `app.py` (com `config.py`, `database.py`, `image_service.py` e `matching.py`). Sem ela o app não inicia (`No module named 'src'`).
+
+### Passo 2: Crie o ambiente virtual
+
+**Windows (PowerShell):**
+```powershell
 py -3.12 -m venv .venv
 .venv\Scripts\activate
 ```
@@ -47,44 +52,84 @@ python3 -m venv .venv
 source .venv/bin/activate
 ```
 
+Se o PowerShell bloquear a ativação, rode antes:
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+```
+
+Quando o ambiente estiver ativo, o prompt começa com `(.venv)`.
+
+> ⚠️ **Todo terminal novo precisa reativar o ambiente** (`.venv\Scripts\activate`) ou usar o Python do `.venv` diretamente, como mostrado no Passo 5.
+
 ### Passo 3: Instale as dependências
 
 ```bash
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
 
-⚠️ **Atenção:** A instalação pode demorar alguns minutos devido ao tamanho do PyTorch (~2 GB).
+⚠️ A instalação pode demorar vários minutos devido ao tamanho do PyTorch (~2 GB).
+
+> **Importante:** o projeto usa `transformers` na versão **4.x** (`>=4.46.3,<5`). A versão 5 muda o retorno do CLIP e causa o erro `'BaseModelOutputWithPooling' object has no attribute 'cpu'`. O `requirements.txt` já deve limitar a versão; confira com:
+> ```bash
+> python -m pip show transformers
+> ```
+> Se estiver na 5.x, corrija com:
+> ```bash
+> python -m pip install "transformers>=4.46.3,<5"
+> ```
 
 ### Passo 4: Configure as variáveis de ambiente
 
 Copie o arquivo `.env.example` para `.env`:
 
+**Windows:**
+```powershell
+copy .env.example .env
+```
+
+**Linux/Mac:**
 ```bash
 cp .env.example .env
 ```
 
-Por padrão, o projeto roda em **modo demonstração local** (sem Supabase). Se quiser usar o Supabase, preencha as credenciais no `.env`:
+**Para usar o modo demonstração local (padrão, sem Supabase):** abra o `.env` e deixe `SUPABASE_URL` e `SUPABASE_KEY` **vazios**:
 
 ```env
-SUPABASE_URL=https://seu-projeto.supabase.co
-SUPABASE_KEY=sua-chave-anon-aqui
+SUPABASE_URL=
+SUPABASE_KEY=
 ```
 
-### Passo 5: Execute o projeto
+> ⚠️ Se mantiver os valores de exemplo (`https://seu-projeto.supabase.co`), o app tentará conectar em um Supabase que não existe e dará erro.
 
-**Windows:**
+Para usar o Supabase, preencha com as credenciais do seu projeto (veja "Configuração Avançada").
+
+### Passo 5: (Opcional) Carregue dados de demonstração
+
 ```bash
-py -3.12 -m streamlit run app.py
+python scripts/seed_demo.py
 ```
 
-**Ou clique duas vezes em `run.bat`**
+Cria registros e imagens de exemplo para testar a busca logo de cara.
 
-**Linux/Mac:**
+### Passo 6: Execute o projeto
+
+Com o ambiente ativo:
+
 ```bash
-streamlit run app.py
+python -m streamlit run app.py
 ```
+
+Ou, sem precisar ativar o ambiente (Windows):
+
+```powershell
+.venv\Scripts\python.exe -m streamlit run app.py
+```
+
+Ou dê dois cliques em `run.bat` (Windows).
 
 A aplicação abrirá automaticamente em: **http://localhost:8501**
+
+> 💡 Use sempre `python -m streamlit` (e não `py -3.12 -m streamlit`) com o ambiente ativo. O comando `py` chama o Python do sistema, que não tem as dependências instaladas.
 
 ---
 
@@ -116,7 +161,7 @@ A aplicação abrirá automaticamente em: **http://localhost:8501**
 | **Python 3.12** | Linguagem principal |
 | **Streamlit** | Interface web |
 | **PyTorch** | Framework de deep learning |
-| **Transformers (Hugging Face)** | Modelo CLIP pré-treinado |
+| **Transformers (Hugging Face) 4.x** | Modelo CLIP pré-treinado |
 | **CLIP** | Busca visual por similaridade |
 | **Pillow** | Processamento de imagens |
 | **Supabase** | Banco de dados (opcional) |
@@ -134,13 +179,20 @@ petmatch-ai/
 │   ├── database.py        # Repositórios (local e Supabase)
 │   ├── image_service.py   # Validação e armazenamento de imagens
 │   └── matching.py        # Busca visual com CLIP
+├── scripts/
+│   ├── seed_demo.py       # Gera dados de demonstração
+│   └── check_search.py    # Verifica a busca com o CLIP real
+├── sql/
+│   └── schema.sql         # Tabela e políticas para o Supabase
+├── tests/                 # Testes automatizados (pytest)
 ├── data/
 │   ├── images/            # Fotos cadastradas (não versionadas)
 │   └── demo_db.json       # Banco local em modo demo
 ├── requirements.txt       # Dependências Python
-├── .env.example          # Exemplo de configuração
-├── .gitignore            # Arquivos ignorados pelo Git
-└── README.md             # Este arquivo
+├── run.bat                # Atalho para rodar no Windows
+├── .env.example           # Exemplo de configuração
+├── .gitignore             # Arquivos ignorados pelo Git
+└── README.md              # Este arquivo
 ```
 
 ---
@@ -151,7 +203,7 @@ petmatch-ai/
 
 1. Crie uma conta em [supabase.com](https://supabase.com)
 2. Crie um novo projeto
-3. Execute o SQL abaixo no **SQL Editor** do Supabase:
+3. Execute o conteúdo de `sql/schema.sql` no **SQL Editor** do Supabase, ou o SQL abaixo:
 
 ```sql
 CREATE TABLE animal_reports (
@@ -181,16 +233,27 @@ CREATE POLICY "Permitir inserção pública" ON animal_reports
 ```
 
 4. Copie a **URL do projeto** e a **chave anon/public** em **Project Settings → API**
-5. Cole as credenciais no arquivo `.env`
+5. Cole as credenciais no arquivo `.env`:
+
+```env
+SUPABASE_URL=https://seu-projeto.supabase.co
+SUPABASE_KEY=sua-chave-anon-aqui
+```
 
 ---
 
 ## 🧪 Testes
 
-Execute os testes (se disponíveis):
+Com o ambiente ativo:
 
 ```bash
-pytest
+python -m pytest
+```
+
+Para verificar a busca com o CLIP real (requer internet na primeira vez):
+
+```bash
+python scripts/check_search.py
 ```
 
 ---
@@ -201,7 +264,47 @@ pytest
 - ⚠️ **Os resultados são sugestões que devem ser confirmadas pessoalmente**
 - ⚠️ **Não inclua dados pessoais** (telefone, endereço completo) nas descrições
 - ⚠️ **No modo local**, as imagens ficam armazenadas apenas na sua máquina
-- ⚠️ **Primeira busca**: o modelo CLIP (~340 MB) é baixado automaticamente
+- ⚠️ **Primeira busca**: o modelo CLIP (~600 MB) é baixado automaticamente
+
+---
+
+## 🆘 Problemas Comuns
+
+### `No module named streamlit`
+O terminal não está usando o ambiente virtual. Confira se o prompt começa com `(.venv)`. Se não, ative com `.venv\Scripts\activate` ou rode direto com `.venv\Scripts\python.exe -m streamlit run app.py`. Evite `py -3.12 -m streamlit`, que chama o Python do sistema.
+
+### `No module named 'src'`
+A pasta `src/` não está ao lado do `app.py`. Confira com `dir` (Windows) ou `ls` (Linux/Mac). Execute o projeto a partir da raiz do repositório, não de dentro de outras pastas. Se a pasta realmente não existir, o download veio incompleto: baixe o projeto de novo.
+
+### `'BaseModelOutputWithPooling' object has no attribute 'cpu'`
+Versão incompatível do `transformers` (5.x). Instale a 4.x e reinicie o Streamlit (Ctrl+C e rode de novo):
+```bash
+python -m pip install "transformers>=4.46.3,<5"
+```
+
+### Erro de conexão com o Supabase ao abrir o app
+O `.env` está com valores de exemplo. Para o modo demonstração, deixe `SUPABASE_URL` e `SUPABASE_KEY` vazios.
+
+### "torch not found" ou erro na instalação do PyTorch
+Use Python 3.10 a 3.12. Se o pip não encontrar a versão pedida no `requirements.txt`, relaxe a exigência (por exemplo, `torch>=2.4.0`).
+
+### "Microsoft Visual C++ required"
+No Windows, use versões pré-compiladas das bibliotecas:
+```bash
+python -m pip install --only-binary :all: -r requirements.txt
+```
+
+### Aviso sobre `hf_xet` ao baixar o modelo
+É apenas informativo. Para downloads mais rápidos: `python -m pip install hf_xet`.
+
+### A busca falha na primeira vez
+O modelo CLIP precisa ser baixado. Verifique a conexão com a internet e tente de novo.
+
+### Aplicação não abre
+Verifique se o Streamlit foi instalado corretamente:
+```bash
+python -m streamlit --version
+```
 
 ---
 
@@ -235,28 +338,6 @@ Este projeto é de código aberto. Consulte o arquivo `LICENSE` para mais detalh
 ## 🎓 Sobre o Hackathon
 
 Este projeto foi desenvolvido durante o **Hackathon da Estácio em parceria com a AWS**, com o objetivo de criar soluções tecnológicas inovadoras que impactem positivamente a sociedade. O PetMatch AI utiliza inteligência artificial para resolver um problema real: ajudar a reunir animais perdidos com seus tutores.
-
----
-
-## 🆘 Problemas Comuns
-
-### "No module named 'src'"
-Execute o projeto a partir da raiz do repositório, não de dentro de pastas.
-
-### "torch not found" ou erro na instalação
-Use Python 3.10 a 3.12. O Python 3.15+ ainda não tem suporte completo.
-
-### "Microsoft Visual C++ required"
-No Windows, use versões pré-compiladas das bibliotecas:
-```bash
-pip install --only-binary :all: -r requirements.txt
-```
-
-### Aplicação não abre
-Verifique se o Streamlit foi instalado corretamente:
-```bash
-streamlit --version
-```
 
 ---
 
